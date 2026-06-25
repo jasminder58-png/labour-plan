@@ -577,9 +577,59 @@ tbody tr:hover td{background:var(--s3);color:var(--t1)}
 .refresh-sel{font-family:var(--mono);font-size:.62rem;color:var(--t2);background:var(--s2);border:1px solid var(--b1);border-radius:20px;padding:.24rem .5rem;cursor:pointer;outline:none;flex-shrink:0}
 .refresh-sel:hover{border-color:var(--acc);color:var(--acc)}
 .refresh-sel:focus{border-color:var(--acc)}
+
+/* ── LOGIN SCREEN ── */
+.login-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center}
+.login-screen.hidden{display:none}
+.login-box{background:var(--s1);border:1px solid var(--b2);border-radius:var(--r3);padding:2.5rem;width:400px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.75);display:flex;flex-direction:column;gap:1.2rem}
+.login-logo{display:flex;align-items:center;gap:.75rem}
+.login-logo-mark{width:42px;height:42px;border-radius:10px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:1.1rem;color:#fff;font-weight:700;flex-shrink:0}
+.login-title{font-family:var(--mono);font-size:.92rem;color:var(--t1);font-weight:500}
+.login-sub{font-size:.72rem;color:var(--t3);margin-top:.15rem}
+.login-field{display:flex;flex-direction:column;gap:.35rem}
+.login-label{font-size:.68rem;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em}
+.login-inp{background:var(--s2);border:1px solid var(--b2);color:var(--t1);padding:.65rem .85rem;border-radius:var(--r);font-family:var(--font);font-size:.9rem;outline:none;transition:border-color .15s;width:100%}
+.login-inp:focus{border-color:var(--acc)}
+.login-btn{background:var(--acc);color:#fff;border:none;padding:.75rem;border-radius:var(--r);font-family:var(--font);font-size:.9rem;font-weight:600;cursor:pointer;transition:background .15s;width:100%}
+.login-btn:hover:not(:disabled){background:var(--acc2)}
+.login-btn:disabled{opacity:.5;cursor:not-allowed}
+.login-err{font-size:.74rem;color:var(--err);background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);border-radius:var(--r);padding:.5rem .75rem;display:none}
+.login-err.show{display:block}
+/* ── USER CHIP (topbar) ── */
+.user-chip{display:flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.65rem;background:var(--s2);border:1px solid var(--b2);border-radius:20px;padding:.22rem .5rem .22rem .45rem;color:var(--t2);flex-shrink:0}
+.user-dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+.user-email{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sign-out-btn{background:none;border:1px solid var(--b2);color:var(--t3);border-radius:var(--r);padding:.08rem .42rem;font-size:.6rem;cursor:pointer;font-family:var(--mono);transition:all .15s;flex-shrink:0;margin-left:.1rem}
+.sign-out-btn:hover{border-color:var(--err);color:var(--err)}
 </style>
 </head>
 <body>
+
+<!-- ════ LOGIN SCREEN ════ -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-mark">LP</div>
+      <div>
+        <div class="login-title">LABOUR PLAN · CONTROL TOWER</div>
+        <div class="login-sub">Sign in to access the dashboard</div>
+      </div>
+    </div>
+    <div class="login-field">
+      <label class="login-label">Email</label>
+      <input class="login-inp" id="login-email" type="email" placeholder="your@email.com"
+        autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()">
+    </div>
+    <div class="login-field">
+      <label class="login-label">Password</label>
+      <input class="login-inp" id="login-pass" type="password" placeholder="••••••••"
+        autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="login-err" id="login-err"></div>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
 <div class="app">
 
 <div class="topbar">
@@ -631,6 +681,11 @@ tbody tr:hover td{background:var(--s3);color:var(--t1)}
   <button class="btn primary" onclick="selectFolder()">📁 Select Folder</button>
   <button class="btn reconnect-btn" id="btn-reconnect" style="display:none" onclick="reconnectFolder()">🔗 Reconnect</button>
   <button class="btn" id="btn-refresh" disabled onclick="refreshFolder()">↻ Refresh</button>
+  <div class="user-chip" id="user-chip" style="display:none">
+    <div class="user-dot"></div>
+    <span class="user-email" id="user-email">—</span>
+    <button class="sign-out-btn" onclick="doSignOut()">Sign out</button>
+  </div>
 </div>
 
 <div class="subtoolbar">
@@ -2866,17 +2921,116 @@ async function exportCSVs(auto=false){
 document.getElementById('push-overlay').addEventListener('click',function(e){
   if(e.target===this) this.classList.remove('show');
 });
-function openDB(){
+// ════════════════════════════════════════════════════════
+// SUPABASE CONFIG & DATA LAYER
+// Replaces IndexedDB as the shared cloud database.
+// File system handles stay local (they cannot be serialised).
+// ════════════════════════════════════════════════════════
+const SUPA_URL  = 'https://pnhpogmukzuyiaacloxm.supabase.co';
+const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBuaHBvZ211a3p1eWlhYWNsb3htIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzg4NjksImV4cCI6MjA5NzkxNDg2OX0.DdRLH4pGdRj30UDCuTES1ZRgeVARx0e-Al4Gd3gz8O4';
+
+let _supaSession = null;
+
+function _supaToken(){ return _supaSession?.access_token || SUPA_ANON; }
+function _supaHdrs(extra={}){
+  return {'apikey':SUPA_ANON,'Authorization':`Bearer ${_supaToken()}`,'Content-Type':'application/json',...extra};
+}
+
+async function supaSignIn(email,password){
+  const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SUPA_ANON},
+    body:JSON.stringify({email,password})
+  });
+  const d=await r.json();
+  if(!r.ok) throw new Error(d.error_description||d.message||'Login failed — check your email and password.');
+  _supaSession={...d, expires_at_ms:(d.expires_at||0)*1000};
+  localStorage.setItem('lp-session',JSON.stringify(_supaSession));
+  return d;
+}
+
+async function supaRefreshToken(){
+  if(!_supaSession?.refresh_token) return false;
+  try{
+    const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=refresh_token`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPA_ANON},
+      body:JSON.stringify({refresh_token:_supaSession.refresh_token})
+    });
+    if(!r.ok) return false;
+    const d=await r.json();
+    _supaSession={...d, expires_at_ms:(d.expires_at||0)*1000};
+    localStorage.setItem('lp-session',JSON.stringify(_supaSession));
+    return true;
+  }catch(e){return false;}
+}
+
+async function supaSignOut(){
+  try{
+    await fetch(`${SUPA_URL}/auth/v1/logout`,{
+      method:'POST',
+      headers:{'apikey':SUPA_ANON,'Authorization':`Bearer ${_supaToken()}`}
+    });
+  }catch(e){}
+  _supaSession=null;
+  localStorage.removeItem('lp-session');
+}
+
+async function supaEnsureSession(){
+  if(!_supaSession) return false;
+  if(_supaSession.expires_at_ms && Date.now()>_supaSession.expires_at_ms-120000){
+    return await supaRefreshToken();
+  }
+  return true;
+}
+
+// ── Local IDB — file handles only (cannot be JSON-serialised) ────────
+const LOCAL_HANDLE_KEYS=new Set(['dirHandle','csvDirHandle']);
+function localOpenDB(){
   return new Promise((res,rej)=>{
-    const req=indexedDB.open('LabourPlanDB',1);
+    const req=indexedDB.open('LabourPlanLocal',1);
     req.onupgradeneeded=e=>e.target.result.createObjectStore('kv');
     req.onsuccess=e=>res(e.target.result);
     req.onerror=()=>rej(req.error);
   });
 }
-async function idbSet(k,v){const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
-async function idbGet(k){const db=await openDB();return new Promise(res=>{const tx=db.transaction('kv','readonly');const req=tx.objectStore('kv').get(k);req.onsuccess=()=>res(req.result||null);req.onerror=()=>res(null);});}
-async function idbDel(k){const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete(k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
+async function localIdbSet(k,v){const db=await localOpenDB();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
+async function localIdbGet(k){const db=await localOpenDB();return new Promise(res=>{const tx=db.transaction('kv','readonly');const req=tx.objectStore('kv').get(k);req.onsuccess=()=>res(req.result||null);req.onerror=()=>res(null);});}
+async function localIdbDel(k){const db=await localOpenDB();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete(k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
+
+// ── Supabase KV (shared cloud store) ─────────────────────────────────
+async function idbSet(k,v){
+  if(LOCAL_HANDLE_KEYS.has(k)) return localIdbSet(k,v);
+  await supaEnsureSession();
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/kv_store`,{
+      method:'POST',
+      headers:_supaHdrs({'Prefer':'resolution=merge-duplicates,return=minimal'}),
+      body:JSON.stringify({key:k, value:v})
+    });
+  }catch(e){console.error('supa set:',k,e);}
+}
+async function idbGet(k){
+  if(LOCAL_HANDLE_KEYS.has(k)) return localIdbGet(k);
+  await supaEnsureSession();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(k)}&select=value`,{
+      headers:_supaHdrs()
+    });
+    const rows=await r.json();
+    if(!Array.isArray(rows)||!rows.length) return null;
+    return rows[0].value;
+  }catch(e){console.error('supa get:',k,e);return null;}
+}
+async function idbDel(k){
+  if(LOCAL_HANDLE_KEYS.has(k)) return localIdbDel(k);
+  await supaEnsureSession();
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(k)}`,{
+      method:'DELETE',headers:_supaHdrs()
+    });
+  }catch(e){console.error('supa del:',k,e);}
+}
 
 // ════════════════════════════════════════════════════════
 // FOLDER SELECTION & PERSISTENCE
@@ -3082,7 +3236,15 @@ function whColor(wh){return wh==='06'?'var(--wh06)':wh==='19'?'var(--wh19)':'var
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 // extra idb helper — list all keys
-async function idbKeys(){const db=await openDB();return new Promise(res=>{const tx=db.transaction('kv','readonly');const req=tx.objectStore('kv').getAllKeys();req.onsuccess=()=>res(req.result||[]);req.onerror=()=>res([]);});}
+async function idbKeys(){
+  await supaEnsureSession();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/kv_store?select=key`,{headers:_supaHdrs()});
+    const rows=await r.json();
+    if(!Array.isArray(rows)) return [];
+    return rows.map(r=>r.key);
+  }catch(e){console.error('supa keys:',e);return [];}
+}
 
 async function getRoster(wh){
   if(rosterCache[wh]) return rosterCache[wh];
@@ -3448,14 +3610,64 @@ function initPhase1(){
 }
 
 // ════════════════════════════════════════════════════════
-// INIT
+// LOGIN UI
 // ════════════════════════════════════════════════════════
-(async()=>{
-  // Theme
-  const t=localStorage.getItem('lp-theme')||'dark';
-  if(t==='light') document.body.classList.add('light');
-  document.getElementById('theme-btn').textContent=t==='light'?'🌙':'☀';
+function _showLoginScreen(){ document.getElementById('login-screen').classList.remove('hidden'); }
+function _hideLoginScreen(){ document.getElementById('login-screen').classList.add('hidden'); }
 
+function _setUserChip(email){
+  const chip=document.getElementById('user-chip');
+  const em=document.getElementById('user-email');
+  if(em) em.textContent=email||'—';
+  if(chip) chip.style.display='flex';
+}
+
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const pass=document.getElementById('login-pass').value;
+  const btn=document.getElementById('login-btn');
+  const err=document.getElementById('login-err');
+  if(!email||!pass){err.textContent='Please enter your email and password.';err.classList.add('show');return;}
+  err.classList.remove('show');
+  btn.disabled=true; btn.textContent='Signing in…';
+  try{
+    const d=await supaSignIn(email,pass);
+    const userEmail=d.user?.email||email;
+    _hideLoginScreen();
+    _setUserChip(userEmail);
+    await _dashInit();
+  }catch(e){
+    err.textContent=e.message;
+    err.classList.add('show');
+  }finally{
+    btn.disabled=false; btn.textContent='Sign In';
+  }
+}
+
+async function doSignOut(){
+  if(!confirm('Sign out of Labour Plan?')) return;
+  stopAutoRefresh();
+  await supaSignOut();
+  // Clear all in-memory caches so next login starts fresh
+  Object.keys(rosterCache).forEach(k=>delete rosterCache[k]);
+  Object.keys(pminCache).forEach(k=>delete pminCache[k]);
+  Object.keys(custOrdersCache).forEach(k=>delete custOrdersCache[k]);
+  Object.keys(trfCache).forEach(k=>delete trfCache[k]);
+  Object.keys(fixedCache).forEach(k=>delete fixedCache[k]);
+  Object.keys(mxCache).forEach(k=>delete mxCache[k]);
+  if(typeof laskoCache!=='undefined') laskoCache.rows=null;
+  allReceipts=[]; allOrders=[]; allTransport=[]; fcbRows=[];
+  document.getElementById('user-chip').style.display='none';
+  _showLoginScreen();
+  // Clear email/pass fields
+  const ep=document.getElementById('login-pass'); if(ep) ep.value='';
+  document.getElementById('login-err').classList.remove('show');
+}
+
+// ════════════════════════════════════════════════════════
+// DASHBOARD INIT (runs after successful login)
+// ════════════════════════════════════════════════════════
+async function _dashInit(){
   // Auto-export preference + last-export time
   const ae=localStorage.getItem('lp-auto-export')==='1';
   const aec=document.getElementById('auto-exp-chk');
@@ -3475,14 +3687,13 @@ function initPhase1(){
   // Phase 1 — attendance + calculation
   try{ initPhase1(); }catch(e){ console.error('Phase1 init',e); }
 
-  // Build warehouse panels (sub-tabs + Transfers/Fixed/Customers) so they work
-  // before any data folder is connected. Folder load re-renders with real data.
+  // Build warehouse panels so they work before folder is connected
   try{ await renderDashboards(); }catch(e){ console.error('shell render',e); }
 
-  // Restore CSV folder handle from IndexedDB
+  // Restore CSV folder handle from local IDB
   await restorePushHandles();
 
-  // Try to restore folder from IndexedDB
+  // Try to restore data folder from local IDB
   try{
     const stored=await idbGet('dirHandle');
     if(stored){
@@ -3491,26 +3702,56 @@ function initPhase1(){
       try{perm=await dirHandle.queryPermission({mode:'read'});}catch(_){}
 
       if(perm==='granted'){
-        // Still has permission — auto-load and start timer
         document.getElementById('btn-refresh').disabled=false;
         updateFolderModal(dirHandle.name);
         setStatus('loading',`Auto-loading from "${dirHandle.name}"…`);
         await loadFromFolder();
         startAutoRefresh();
       } else {
-        // Permission needs re-request — show the one-click overlay
         const ol=document.getElementById('rcon-overlay');
         const fl=document.getElementById('rcon-overlay-folder');
         if(fl) fl.textContent=`📁 ${dirHandle.name}`;
         if(ol) ol.classList.add('show');
         setStatus('warn',`Click "Reconnect & Load" to resume`);
         updateFolderModal(dirHandle.name);
-        showReconnectUI(dirHandle.name); // keep topbar button as fallback too
+        showReconnectUI(dirHandle.name);
       }
     }
   }catch(e){
-    console.log('Init (no stored folder):', e.message);
+    console.log('Init (no stored folder):',e.message);
   }
+}
+
+// ════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════
+(async()=>{
+  // Theme applies before login
+  const t=localStorage.getItem('lp-theme')||'dark';
+  if(t==='light') document.body.classList.add('light');
+  document.getElementById('theme-btn').textContent=t==='light'?'🌙':'☀';
+
+  // Check for stored session
+  const stored=localStorage.getItem('lp-session');
+  let sessionOk=false;
+  if(stored){
+    try{
+      _supaSession=JSON.parse(stored);
+      if(_supaSession.expires_at_ms && Date.now()<_supaSession.expires_at_ms-30000){
+        sessionOk=true; // Still valid
+      } else if(_supaSession.refresh_token){
+        sessionOk=await supaRefreshToken(); // Try silent refresh
+      }
+    }catch(e){ _supaSession=null; localStorage.removeItem('lp-session'); }
+  }
+
+  if(sessionOk){
+    const userEmail=_supaSession?.user?.email||'';
+    _hideLoginScreen();
+    _setUserChip(userEmail);
+    await _dashInit();
+  }
+  // else: login screen stays visible (default state)
 })();
 </script>
 </body>
